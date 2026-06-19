@@ -369,6 +369,39 @@ body {
     margin-bottom: 8px;
 }
 
+.card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.card-copy-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 3px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
+}
+
+.card-copy-btn:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.card-copy-btn svg {
+    width: 13px;
+    height: 13px;
+}
+
+.card-copy-btn.copied {
+    color: #10b981;
+}
+
 .card-date {
     font-size: 12px;
     color: var(--text-muted);

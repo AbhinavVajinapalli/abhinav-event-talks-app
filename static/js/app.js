@@ -11,6 +11,7 @@ let sortOrder = 'desc'; // 'desc' (newest first) or 'asc' (oldest first)
 // DOM Elements
 const refreshBtn = document.getElementById('refresh-btn');
 const refreshIcon = document.getElementById('refresh-icon');
+const exportCsvBtn = document.getElementById('export-csv-btn');
 const lastFetchedText = document.getElementById('last-fetched-text');
 const statusDot = document.querySelector('.status-dot');
 const searchInput = document.getElementById('search-input');
@@ -51,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchReleases(false);
     
     refreshBtn.addEventListener('click', () => fetchReleases(true));
+    exportCsvBtn.addEventListener('click', exportToCSV);
     searchInput.addEventListener('input', handleSearch);
     sortOrderSelect.addEventListener('change', handleSortChange);
     
@@ -251,11 +253,41 @@ function renderReleasesList() {
         card.innerHTML = `
             <div class="card-header-meta">
                 <span class="badge ${typeClass}">${release.type}</span>
-                <span class="card-date">${release.date}</span>
+                <div class="card-header-actions">
+                    <button class="card-copy-btn" title="Copy release text">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                    <span class="card-date">${release.date}</span>
+                </div>
             </div>
             <h4 class="card-title">${titleSnippet}</h4>
             <p class="card-preview">${release.text_content}</p>
         `;
+        
+        const copyBtn = card.querySelector('.card-copy-btn');
+        copyBtn.addEventListener('click', async (e) => {
+            e.stopPropagation(); // Avoid selecting the card
+            try {
+                await navigator.clipboard.writeText(release.text_content);
+                copyBtn.classList.add('copied');
+                // Temporarily replace SVG with a checkmark for feedback
+                const origSVG = copyBtn.innerHTML;
+                copyBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                `;
+                setTimeout(() => {
+                    copyBtn.classList.remove('copied');
+                    copyBtn.innerHTML = origSVG;
+                }, 1500);
+            } catch (err) {
+                console.error('Failed to copy card text:', err);
+            }
+        });
         
         card.addEventListener('click', () => selectRelease(release.id));
         releasesListContainer.appendChild(card);
@@ -415,4 +447,49 @@ async function copyTweetToClipboard() {
     } catch (err) {
         console.error('Clipboard copy failed:', err);
     }
+}
+
+// Export the currently filtered list of releases to CSV file
+function exportToCSV() {
+    if (filteredReleases.length === 0) {
+        alert("No release notes found to export.");
+        return;
+    }
+    
+    // CSV Headers
+    const headers = ["Date", "Type", "Link", "Content"];
+    
+    // Convert rows
+    const csvRows = [
+        headers.join(",") // Headers row
+    ];
+    
+    filteredReleases.forEach(r => {
+        // Escape helper to handle double quotes and commas in CSV
+        const escape = (text) => {
+            if (text === null || text === undefined) return '""';
+            const formatted = text.toString().replace(/"/g, '""');
+            return `"${formatted}"`;
+        };
+        
+        const row = [
+            escape(r.date),
+            escape(r.type),
+            escape(r.link),
+            escape(r.text_content)
+        ];
+        csvRows.push(row.join(","));
+    });
+    
+    // Generate CSV blob and trigger download
+    const csvString = csvRows.join("\n");
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `bigquery_release_notes_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
