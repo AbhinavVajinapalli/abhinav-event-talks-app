@@ -2,6 +2,8 @@
 let allReleases = [];
 let filteredReleases = [];
 let selectedReleaseId = null;
+let lastFetchedISO = null;
+let toastTimeout = null;
 
 // Search & Filter State
 let searchTerm = '';
@@ -63,20 +65,49 @@ document.addEventListener('DOMContentLoaded', () => {
     searchInput.addEventListener('input', handleSearch);
     sortOrderSelect.addEventListener('change', handleSortChange);
     
-    // Setup filter chip events
+    // Setup filter chip events (Togglable)
     const chips = typeFiltersContainer.querySelectorAll('.filter-chip');
     chips.forEach(chip => {
         chip.addEventListener('click', () => {
-            chips.forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            selectedType = chip.getAttribute('data-type');
+            const type = chip.getAttribute('data-type');
+            if (selectedType === type) {
+                // Toggle off to all
+                selectedType = 'all';
+                chips.forEach(c => c.classList.remove('active'));
+                typeFiltersContainer.querySelector('[data-type="all"]').classList.add('active');
+            } else {
+                chips.forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                selectedType = type;
+            }
             applyFiltersAndRender();
         });
+    });
+
+    // Clear filters button in empty list state
+    document.getElementById('clear-filters-btn').addEventListener('click', () => {
+        searchInput.value = '';
+        searchTerm = '';
+        selectedType = 'all';
+        chips.forEach(c => c.classList.remove('active'));
+        typeFiltersContainer.querySelector('[data-type="all"]').classList.add('active');
+        applyFiltersAndRender();
+    });
+
+    // Keyboard Arrow Keys Navigation
+    document.addEventListener('keydown', handleKeyboardNavigation);
+
+    // Close toast banner
+    document.getElementById('close-toast-banner').addEventListener('click', () => {
+        document.getElementById('toast-banner').classList.add('hidden');
     });
 
     // Tweet Composer Events
     tweetTextarea.addEventListener('input', updateTweetCounter);
     copyTweetBtn.addEventListener('click', copyTweetToClipboard);
+
+    // Update relative time periodically
+    setInterval(updateRelativeTimeDisplay, 30000);
 });
 
 // Init SVG progress ring for character counter
@@ -107,7 +138,14 @@ async function fetchReleases(forceRefresh = false) {
             // Render list
             applyFiltersAndRender();
             
-            // Re-select previously selected item if it still exists
+            // Display warnings as inline toast notification if cache fallback occurred
+            if (data.warning) {
+                showNotification(data.warning, 6000);
+            } else if (forceRefresh) {
+                showNotification("Sync complete! Release notes are up to date.", 3000);
+            }
+            
+            // Re-select previously selected item if it still exists, else select the first card
             if (selectedReleaseId) {
                 const stillExists = allReleases.some(r => r.id === selectedReleaseId);
                 if (stillExists) {
@@ -115,13 +153,15 @@ async function fetchReleases(forceRefresh = false) {
                 } else {
                     resetDetailPane();
                 }
+            } else if (filteredReleases.length > 0) {
+                selectRelease(filteredReleases[0].id);
             }
         } else {
-            alert(`Error: ${data.error || 'Failed to fetch release notes'}`);
+            showNotification(`Error: ${data.error || 'Failed to fetch release notes'}`);
         }
     } catch (error) {
         console.error('Fetch error:', error);
-        alert('Network error occurred while fetching release notes.');
+        showNotification('Network error occurred while fetching release notes.');
     } finally {
         setLoadingState(false);
     }
@@ -148,18 +188,8 @@ function setLoadingState(isLoading) {
 
 // Render last fetched string
 function updateLastFetchedTime(isoString) {
-    if (!isoString) {
-        lastFetchedText.textContent = 'Never updated';
-        return;
-    }
-    
-    try {
-        const date = new Date(isoString);
-        const formatted = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        lastFetchedText.textContent = `Last synced at ${formatted}`;
-    } catch (e) {
-        lastFetchedText.textContent = 'Synced';
-    }
+    lastFetchedISO = isoString;
+    updateRelativeTimeDisplay();
 }
 
 // Update the counters inside filter chips
@@ -372,7 +402,12 @@ function setupTwitterComposer(release) {
     
     let tweetBodyText = release.text_content;
     if (tweetBodyText.length > allowedTextLength) {
-        tweetBodyText = tweetBodyText.substring(0, allowedTextLength - 3) + '...';
+        let truncated = tweetBodyText.substring(0, allowedTextLength - 3);
+        const lastSpace = truncated.lastIndexOf(' ');
+        if (lastSpace > 0) {
+            truncated = truncated.substring(0, lastSpace);
+        }
+        tweetBodyText = truncated + '...';
     }
     
     const fullTweetDraft = `${prefix}${tweetBodyText}${release.link ? `\n\nDetails: ${release.link}` : ''}${hashtags}`;
@@ -537,5 +572,87 @@ function updateThemeIcon(theme) {
     } else {
         themeToggleBtn.innerHTML = sunIcon;
         themeToggleBtn.title = "Switch to Light Mode";
+    }
+}
+
+// Handle keydown navigation (Up/Down arrow key)
+function handleKeyboardNavigation(e) {
+    // Only capture keyboard arrow navigation if the user is NOT actively typing in an input/textarea
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return;
+    }
+    
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') {
+        return;
+    }
+    
+    if (filteredReleases.length === 0) {
+        return;
+    }
+    
+    e.preventDefault(); // Stop default scroll
+    
+    let nextIndex = 0;
+    if (selectedReleaseId) {
+        const currentIndex = filteredReleases.findIndex(r => r.id === selectedReleaseId);
+        if (e.key === 'ArrowDown') {
+            nextIndex = Math.min(currentIndex + 1, filteredReleases.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            nextIndex = Math.max(currentIndex - 1, 0);
+        }
+    }
+    
+    const targetRelease = filteredReleases[nextIndex];
+    if (targetRelease) {
+        selectRelease(targetRelease.id);
+        
+        // Scroll card into view
+        const targetCard = releasesListContainer.querySelector(`[data-id="${targetRelease.id}"]`);
+        if (targetCard) {
+            targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+}
+
+// Show custom notification toast banner
+function showNotification(message, duration = 5000) {
+    const banner = document.getElementById('toast-banner');
+    const bannerMessage = banner.querySelector('.toast-banner-message');
+    
+    bannerMessage.textContent = message;
+    banner.classList.remove('hidden');
+    
+    if (toastTimeout) {
+        clearTimeout(toastTimeout);
+    }
+    
+    if (duration > 0) {
+        toastTimeout = setTimeout(() => {
+            banner.classList.add('hidden');
+        }, duration);
+    }
+}
+
+// Update the Synced relative time display
+function updateRelativeTimeDisplay() {
+    if (!lastFetchedISO) {
+        lastFetchedText.textContent = 'Never synced';
+        return;
+    }
+    
+    try {
+        const diffMs = new Date() - new Date(lastFetchedISO);
+        const diffMins = Math.floor(diffMs / 60000);
+        
+        if (diffMins < 1) {
+            lastFetchedText.textContent = 'Synced just now';
+        } else if (diffMins === 1) {
+            lastFetchedText.textContent = 'Synced 1 min ago';
+        } else {
+            lastFetchedText.textContent = `Synced ${diffMins} mins ago`;
+        }
+    } catch (e) {
+        lastFetchedText.textContent = 'Synced';
     }
 }

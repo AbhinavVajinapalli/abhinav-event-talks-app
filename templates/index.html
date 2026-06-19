@@ -12,6 +12,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <!-- Toast Alert Banner -->
+    <div id="toast-banner" class="toast-banner hidden">
+        <span class="toast-banner-message"></span>
+        <button id="close-toast-banner" class="toast-banner-close" title="Dismiss">&times;</button>
+    </div>
+    
     <div class="app-container">
         <!-- Top Navigation / Header -->
         <header class="app-header">
@@ -117,6 +123,7 @@
                         </svg>
                         <h3>No updates found</h3>
                         <p>Try adjusting your search query or filter tags.</p>
+                        <button id="clear-filters-btn" class="btn btn-secondary btn-sm" style="margin-top: 14px;">Clear Search & Filters</button>
                     </div>
 
                     <div id="releases-list" class="releases-list">
